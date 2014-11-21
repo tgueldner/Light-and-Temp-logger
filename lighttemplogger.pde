@@ -4,6 +4,11 @@
 #include "DHT.h"
 #include <RTCTimedEvent.h>
 
+
+// Sound Sensor Pin
+#define SOUNDSENSORPIN 3
+#define SOUNDLIMIT 10
+
 // START DHT
 // URL: 
 #define DHTPIN 2     // what pin we're connected to
@@ -65,6 +70,10 @@ const int chipSelect = 10;
 // the logging file
 File logfile;
 
+int soundReading = 0;
+int soundSum = 0;
+boolean soundOn = false;
+
 void error(char *str)
 {
   Serial.print("error: ");
@@ -80,6 +89,9 @@ void setup(void)
 {
   Serial.begin(9600);
   Serial.println();
+  
+  // sound
+  pinMode(SOUNDSENSORPIN, INPUT);
   
   // use debugging LEDs
   pinMode(redLEDpin, OUTPUT);
@@ -134,9 +146,9 @@ void setup(void)
   
   dht.begin();
 
-  logfile.println("millis,stamp,datetime,temp,rh,vcc");    
+  logfile.println("millis,stamp,datetime,temp,rh,sound,vcc");    
 #if ECHO_TO_SERIAL
-  Serial.println("millis,stamp,datetime,temp,rh,vcc");
+  Serial.println("millis,stamp,datetime,temp,rh,sound,vcc");
 #endif //ECHO_TO_SERIAL
  
   // If you want to set the aref to something other than 5v
@@ -182,6 +194,33 @@ void loop(void)
 {
   RTCTimedEvent.loop();
   //Narcoleptic.delay(8000);
+  
+  // sound handling
+  soundReading = 0;
+  for(int i=0; i<50; i++) {
+    // 1 = off, no sound; 0 = on, sound -> convert to 1 = on and 0 = off
+    soundReading += ((digitalRead(SOUNDSENSORPIN) - 1 )* -1);
+    delay(10);
+  }
+  if(soundReading == 0 && soundSum > 0) {
+      soundSum--;
+  } else if(soundReading >= 1 && soundSum < SOUNDLIMIT) {
+    soundSum++;
+  }
+  // hysterese
+  if(soundSum == SOUNDLIMIT && !soundOn) {
+    soundOn = true;
+  } else if(soundSum == 0 && soundOn) {
+    soundOn = false;
+  }
+  
+#if ECHO_TO_SERIAL
+  Serial.print("soundSum:");
+  Serial.print(soundSum);
+  Serial.print(" soundOn:");
+  Serial.println(soundOn);
+#endif
+  
   delay(8000);
 }
 
@@ -245,11 +284,15 @@ void readAndSave(RTCTimerInformation* Sender) {
   logfile.print(t);
   logfile.print(", ");    
   logfile.print(rh);
+  logfile.print(", ");    
+  logfile.print(soundOn);
 #if ECHO_TO_SERIAL
   Serial.print(", ");   
   Serial.print(t);
   Serial.print(", ");    
   Serial.print(rh);
+  Serial.print(", ");    
+  Serial.print(soundOn);
 #endif //ECHO_TO_SERIAL
 
   // Log the estimated 'VCC' voltage by measuring the internal 1.1v ref
