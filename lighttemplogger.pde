@@ -67,9 +67,6 @@ RTC_DS1307 RTC; // define the Real Time Clock object
 // for the data logging shield, we use digital pin 10 for the SD cs line
 const int chipSelect = 10;
 
-// the logging file
-File logfile;
-
 int soundReading = 0;
 int soundSum = 0;
 boolean soundOn = false;
@@ -114,39 +111,21 @@ void setup(void)
   }
   Serial.println("card initialized.");
   
-  // create a new file
-  char filename[] = "LOGGER00.CSV";
-  for (uint8_t i = 0; i < 100; i++) {
-    filename[6] = i/10 + '0';
-    filename[7] = i%10 + '0';
-    if (! SD.exists(filename)) {
-      // only open a new file if it doesn't exist
-      logfile = SD.open(filename, FILE_WRITE); 
-      break;  // leave the loop!
-    }
-  }
-  
-  if (! logfile) {
-    error("couldnt create file");
-  }
-  
-  Serial.print("Logging to: ");
-  Serial.println(filename);
-
   // connect to RTC
   Wire.begin();  
   if (!RTC.begin()) {
-    logfile.println("RTC failed");
 #if ECHO_TO_SERIAL
     Serial.println("RTC failed");
 #endif  //ECHO_TO_SERIAL
   }
-  
-  // init cron
-  
+    
   dht.begin();
-
+  
+  File logfile = getDataLogfile(RTC.now());
+  
+  // create data log file for today 
   logfile.println("millis,stamp,datetime,temp,rh,sound,vcc");    
+  logfile.close();
 #if ECHO_TO_SERIAL
   Serial.println("millis,stamp,datetime,temp,rh,sound,vcc");
 #endif //ECHO_TO_SERIAL
@@ -154,8 +133,8 @@ void setup(void)
   // If you want to set the aref to something other than 5v
   analogReference(EXTERNAL);
   
-  //initial buffer for 3 timers
-  RTCTimedEvent.initialCapacity = sizeof(RTCTimerInformation)*5;
+  //initial buffer timers
+  RTCTimedEvent.initialCapacity = sizeof(RTCTimerInformation)*4;
 
   RTCTimedEvent.addTimer(0,         //minute
                          TIMER_ANY,         //hour
@@ -188,6 +167,32 @@ void echo(RTCTimerInformation* Sender) {
   digitalWrite(redLEDpin, HIGH);
   delay(1000);
   digitalWrite(redLEDpin, LOW);
+}
+
+File getDataLogfile(DateTime now) {
+  String filename = "";
+  filename += now.year();
+  filename += "-";  
+  filename += now.month();
+  filename += ".csv";
+  
+  // open data log file
+  char datalogfilename[filename.length()+1];
+  filename.toCharArray(datalogfilename, filename.length()+1);
+  Serial.print("try to open ");
+  Serial.println(datalogfilename);
+  File datalogfile = SD.open(datalogfilename, FILE_WRITE);   
+  
+  if (! datalogfile) {
+    error("couldnt create file");
+  }
+  
+#if ECHO_TO_SERIAL
+  Serial.print("Logging to file ");
+  Serial.println(datalogfilename);
+#endif
+  
+  return datalogfile;
 }
 
 void loop(void)
@@ -229,6 +234,11 @@ void readAndSave(RTCTimerInformation* Sender) {
   
   digitalWrite(greenLEDpin, HIGH);
   
+  // fetch the time
+  now = RTC.now();
+  
+  File logfile = getDataLogfile(now);
+  
   // log milliseconds since starting
   uint32_t m = millis();
   logfile.print(m);           // milliseconds since start
@@ -238,8 +248,6 @@ void readAndSave(RTCTimerInformation* Sender) {
   Serial.print(", ");  
 #endif
 
-  // fetch the time
-  now = RTC.now();
   // log time
   logfile.print(now.unixtime()); // seconds since 1/1/1970
   logfile.print(", ");
@@ -324,7 +332,7 @@ void readAndSave(RTCTimerInformation* Sender) {
   
   // blink LED to show we are syncing data to the card & updating FAT!
   digitalWrite(redLEDpin, HIGH);
-  logfile.flush();
+  logfile.close();
   digitalWrite(redLEDpin, LOW);
   
 }
