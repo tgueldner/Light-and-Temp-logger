@@ -1,29 +1,57 @@
 #include <SD.h>
 #include <Wire.h>
 #include "RTClib.h"
+#include "DHT.h"
+#include <RTCTimedEvent.h>
+
+// START DHT
+// URL: 
+#define DHTPIN 2     // what pin we're connected to
+
+// Uncomment whatever type you're using!
+//#define DHTTYPE DHT11   // DHT 11 
+#define DHTTYPE DHT22   // DHT 22  (AM2302)
+//#define DHTTYPE DHT21   // DHT 21 (AM2301)
+
+// Connect pin 1 (on the left) of the sensor to +5V
+// NOTE: If using a board with 3.3V logic like an Arduino Due connect pin 1
+// to 3.3V instead of 5V!
+// Connect pin 2 of the sensor to whatever your DHTPIN is
+// Connect pin 4 (on the right) of the sensor to GROUND
+// Connect a 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
+
+// Initialize DHT sensor for normal 16mhz Arduino
+DHT dht(DHTPIN, DHTTYPE);
+// NOTE: For working with a faster chip, like an Arduino Due or Teensy, you
+// might need to increase the threshold for cycle counts considered a 1 or 0.
+// You can do this by passing a 3rd parameter for this threshold.  It's a bit
+// of fiddling to find the right value, but in general the faster the CPU the
+// higher the value.  The default for a 16mhz AVR is a value of 6.  For an
+// Arduino Due that runs at 84mhz a value of 30 works.
+// Example to initialize DHT sensor for Arduino Due:
+//DHT dht(DHTPIN, DHTTYPE, 30);
+// END DHT
 
 // A simple data logger for the Arduino analog pins
+// https://learn.adafruit.com/adafruit-data-logger-shield/for-the-mega-and-leonardo
 
 // how many milliseconds between grabbing data and logging it. 1000 ms is once a second
-#define LOG_INTERVAL  1000 // mills between entries (reduce to take more/faster data)
+// #define LOG_INTERVAL  1000 // mills between entries (reduce to take more/faster data)
 
 // how many milliseconds before writing the logged data permanently to disk
 // set it to the LOG_INTERVAL to write each time (safest)
 // set it to 10*LOG_INTERVAL to write all data every 10 datareads, you could lose up to 
 // the last 10 reads if power is lost but it uses less power and is much faster!
-#define SYNC_INTERVAL 1000 // mills between calls to flush() - to write data to the card
-uint32_t syncTime = 0; // time of last sync()
+// #define SYNC_INTERVAL 60000 // mills between calls to flush() - to write data to the card
+// uint32_t syncTime = 0; // time of last sync()
 
 #define ECHO_TO_SERIAL   1 // echo data to serial port
 #define WAIT_TO_START    0 // Wait for serial input in setup()
 
 // the digital pins that connect to the LEDs
-#define redLEDpin 2
-#define greenLEDpin 3
+#define redLEDpin 13 // 2
+#define greenLEDpin 13 // 3
 
-// The analog pins that connect to the sensors
-#define photocellPin 0           // analog 0
-#define tempPin 1                // analog 1
 #define BANDGAPREF 14            // special indicator that we want to measure the bandgap
 
 #define aref_voltage 3.3         // we tie 3.3V to ARef and measure it with a multimeter!
@@ -102,22 +130,63 @@ void setup(void)
 #endif  //ECHO_TO_SERIAL
   }
   
+  // init cron
+  
+  dht.begin();
 
-  logfile.println("millis,stamp,datetime,light,temp,vcc");    
+  logfile.println("millis,stamp,datetime,temp,rh,vcc");    
 #if ECHO_TO_SERIAL
-  Serial.println("millis,stamp,datetime,light,temp,vcc");
+  Serial.println("millis,stamp,datetime,temp,rh,vcc");
 #endif //ECHO_TO_SERIAL
  
   // If you want to set the aref to something other than 5v
   analogReference(EXTERNAL);
+  
+  //initial buffer for 3 timers
+  RTCTimedEvent.initialCapacity = sizeof(RTCTimerInformation)*5;
+
+  RTCTimedEvent.addTimer(0,         //minute
+                         TIMER_ANY,         //hour
+                         TIMER_ANY, //day fo week
+                         TIMER_ANY, //day
+                         TIMER_ANY, //month
+                         readAndSave);
+  RTCTimedEvent.addTimer(15,         //minute
+                         TIMER_ANY,         //hour
+                         TIMER_ANY, //day fo week
+                         TIMER_ANY, //day
+                         TIMER_ANY, //month
+                         readAndSave);
+  RTCTimedEvent.addTimer(30,         //minute
+                         TIMER_ANY,         //hour
+                         TIMER_ANY, //day fo week
+                         TIMER_ANY, //day
+                         TIMER_ANY, //month
+                         readAndSave);
+  RTCTimedEvent.addTimer(45,         //minute
+                         TIMER_ANY,         //hour
+                         TIMER_ANY, //day fo week
+                         TIMER_ANY, //day
+                         TIMER_ANY, //month
+                         readAndSave);
+}
+
+void echo(RTCTimerInformation* Sender) {
+//  Serial.println("echo called");
+  digitalWrite(redLEDpin, HIGH);
+  delay(1000);
+  digitalWrite(redLEDpin, LOW);
 }
 
 void loop(void)
 {
-  DateTime now;
+  RTCTimedEvent.loop();
+  //Narcoleptic.delay(8000);
+  delay(8000);
+}
 
-  // delay for the amount of time we want between readings
-  delay((LOG_INTERVAL -1) - (millis() % LOG_INTERVAL));
+void readAndSave(RTCTimerInformation* Sender) {
+  DateTime now;
   
   digitalWrite(greenLEDpin, HIGH);
   
@@ -166,28 +235,21 @@ void loop(void)
   Serial.print('"');
 #endif //ECHO_TO_SERIAL
 
-  analogRead(photocellPin);
-  delay(10); 
-  int photocellReading = analogRead(photocellPin);  
-  
-  analogRead(tempPin); 
-  delay(10);
-  int tempReading = analogRead(tempPin);    
-  
-  // converting that reading to voltage, for 3.3v arduino use 3.3, for 5.0, use 5.0
-  float voltage = tempReading * aref_voltage / 1024;  
-  float temperatureC = (voltage - 0.5) * 100 ;
-  float temperatureF = (temperatureC * 9 / 5) + 32;
+  // Reading temperature or humidity takes about 250 milliseconds!
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+  float rh = dht.readHumidity();
+  // Read temperature as Celsius
+  float t = dht.readTemperature();  
   
   logfile.print(", ");    
-  logfile.print(photocellReading);
+  logfile.print(t);
   logfile.print(", ");    
-  logfile.print(temperatureF);
+  logfile.print(rh);
 #if ECHO_TO_SERIAL
   Serial.print(", ");   
-  Serial.print(photocellReading);
+  Serial.print(t);
   Serial.print(", ");    
-  Serial.print(temperatureF);
+  Serial.print(rh);
 #endif //ECHO_TO_SERIAL
 
   // Log the estimated 'VCC' voltage by measuring the internal 1.1v ref
@@ -212,8 +274,10 @@ void loop(void)
 
   // Now we write data to disk! Don't sync too often - requires 2048 bytes of I/O to SD card
   // which uses a bunch of power and takes time
-  if ((millis() - syncTime) < SYNC_INTERVAL) return;
-  syncTime = millis();
+  //if ((millis() - syncTime) < SYNC_INTERVAL) return;
+  //syncTime = millis();
+  
+ //-> jedes mal Speichern
   
   // blink LED to show we are syncing data to the card & updating FAT!
   digitalWrite(redLEDpin, HIGH);
@@ -221,5 +285,4 @@ void loop(void)
   digitalWrite(redLEDpin, LOW);
   
 }
-
 
