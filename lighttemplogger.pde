@@ -3,6 +3,7 @@
 #include "RTClib.h"
 #include "DHT.h"
 #include <RTCTimedEvent.h>
+#include <EEPROM.h>  // Contains EEPROM.read() and EEPROM.write()
 
 
 // Sound Sensor Pin
@@ -67,9 +68,45 @@ RTC_DS1307 RTC; // define the Real Time Clock object
 // for the data logging shield, we use digital pin 10 for the SD cs line
 const int chipSelect = 10;
 
-int soundReading = 0;
 int soundSum = 0;
 boolean soundOn = false;
+
+int logfileNumber = 0;
+
+//SETTINGS
+// ID of the settings block
+#define CONFIG_VERSION "TL1"
+
+// Tell it where to store your config data in EEPROM
+#define CONFIG_START 32
+
+
+//  settings structure
+struct StoreStruct {
+  // This is for mere detection if they are your settings
+  char version[4];
+  // The variables of your settings
+  int logfileNumber;
+} storage = {
+  CONFIG_VERSION,
+  // The default values
+  0
+};
+
+void loadConfig() {
+  // To make sure there are settings, and they are YOURS!
+  // If nothing is found it will use the default settings.
+  if (EEPROM.read(CONFIG_START + 0) == CONFIG_VERSION[0] &&
+      EEPROM.read(CONFIG_START + 1) == CONFIG_VERSION[1] &&
+      EEPROM.read(CONFIG_START + 2) == CONFIG_VERSION[2])
+    for (unsigned int t=0; t<sizeof(storage); t++)
+      *((char*)&storage + t) = EEPROM.read(CONFIG_START + t);
+}
+
+void saveConfig() {
+  for (unsigned int t=0; t<sizeof(storage); t++)
+    EEPROM.write(CONFIG_START + t, *((char*)&storage + t));
+}
 
 void error(char *str)
 {
@@ -87,6 +124,8 @@ void setup(void)
   Serial.begin(9600);
   Serial.println();
   
+  Serial.println("Temp/RH logger V0.1 started.");
+  
   // sound
   pinMode(SOUNDSENSORPIN, INPUT);
   
@@ -99,6 +138,25 @@ void setup(void)
   while (!Serial.available());
 #endif //WAIT_TO_START
 
+  // connect to RTC
+  Wire.begin();  
+  if (!RTC.begin()) {
+    error("RTC failed");
+  }
+  DateTime now = RTC.now();
+  Serial.print("Start up on ");
+  Serial.print(now.day(), DEC);
+  Serial.print(".");
+  Serial.print(now.month(), DEC);
+  Serial.print(".");
+  Serial.print(now.year(), DEC);
+  Serial.print(" ");
+  Serial.print(now.hour(), DEC);
+  Serial.print(":");
+  Serial.print(now.minute(), DEC);
+  Serial.print(":");
+  Serial.println(now.second(), DEC);
+
   // initialize the SD card
   Serial.print("Initializing SD card...");
   // make sure that the default chip select pin is set to
@@ -110,25 +168,13 @@ void setup(void)
     error("Card failed, or not present");
   }
   Serial.println("card initialized.");
-  
-  // connect to RTC
-  Wire.begin();  
-  if (!RTC.begin()) {
-#if ECHO_TO_SERIAL
-    Serial.println("RTC failed");
-#endif  //ECHO_TO_SERIAL
-  }
     
   dht.begin();
   
-  File logfile = getDataLogfile(RTC.now());
+  loadConfig();
   
-  // create data log file for today 
-  logfile.println("millis,stamp,datetime,temp,rh,sound,vcc");    
-  logfile.close();
-#if ECHO_TO_SERIAL
-  Serial.println("millis,stamp,datetime,temp,rh,sound,vcc");
-#endif //ECHO_TO_SERIAL
+  logfileNumber = storage.logfileNumber;
+  File logfile = getDataLogfile(logfileNumber);
  
   // If you want to set the aref to something other than 5v
   analogReference(EXTERNAL);
@@ -169,30 +215,37 @@ void echo(RTCTimerInformation* Sender) {
   digitalWrite(redLEDpin, LOW);
 }
 
-File getDataLogfile(DateTime now) {
-  String filename = "";
-  filename += now.year();
-  filename += "-";  
-  filename += now.month();
-  filename += ".csv";
+File getDataLogfile(int logfileNumber) {
+  // create a new file
+  char filename[] = "LOGGER00.CSV";
+  filename[6] = logfileNumber/10 + '0';
+  filename[7] = logfileNumber%10 + '0';
   
-  // open data log file
-  char datalogfilename[filename.length()+1];
-  filename.toCharArray(datalogfilename, filename.length()+1);
-  Serial.print("try to open ");
-  Serial.println(datalogfilename);
-  File datalogfile = SD.open(datalogfilename, FILE_WRITE);   
+  boolean newFile = !SD.exists(filename);
+  File logfile = SD.open(filename, FILE_WRITE); 
   
-  if (! datalogfile) {
+  if (! logfile) {
     error("couldnt create file");
   }
   
 #if ECHO_TO_SERIAL
   Serial.print("Logging to file ");
-  Serial.println(datalogfilename);
+  Serial.println(logfile.name());
 #endif
   
-  return datalogfile;
+  if(newFile) {
+    // create heading for new log file 
+    logfile.println("millis,stamp,datetime,temp,rh,sound,vcc");    
+    logfile.close();
+#if ECHO_TO_SERIAL
+    Serial.println("log file heading: millis,stamp,datetime,temp,rh,sound,vcc");
+#endif //ECHO_TO_SERIAL
+  }
+  
+  // TODO: not the best place here
+  saveConfig();
+
+  return logfile;
 }
 
 void loop(void)
@@ -201,7 +254,13 @@ void loop(void)
   //Narcoleptic.delay(8000);
   
   // sound handling
-  soundReading = 0;
+  handleSound();
+  
+  delay(8000);
+}
+
+void handleSound(void) {
+  int soundReading = 0;
   for(int i=0; i<50; i++) {
     // 1 = off, no sound; 0 = on, sound -> convert to 1 = on and 0 = off
     soundReading += ((digitalRead(SOUNDSENSORPIN) - 1 )* -1);
@@ -212,7 +271,7 @@ void loop(void)
   } else if(soundReading >= 1 && soundSum < SOUNDLIMIT) {
     soundSum++;
   }
-  // hysterese
+  // sound hysterese
   if(soundSum == SOUNDLIMIT && !soundOn) {
     soundOn = true;
   } else if(soundSum == 0 && soundOn) {
@@ -225,19 +284,15 @@ void loop(void)
   Serial.print(" soundOn:");
   Serial.println(soundOn);
 #endif
-  
-  delay(8000);
 }
 
 void readAndSave(RTCTimerInformation* Sender) {
-  DateTime now;
-  
   digitalWrite(greenLEDpin, HIGH);
   
   // fetch the time
-  now = RTC.now();
+  DateTime now = RTC.now();
   
-  File logfile = getDataLogfile(now);
+  File logfile = getDataLogfile(logfileNumber);
   
   // log milliseconds since starting
   uint32_t m = millis();
@@ -336,4 +391,9 @@ void readAndSave(RTCTimerInformation* Sender) {
   digitalWrite(redLEDpin, LOW);
   
 }
+
+void initEEPROM(void) {
+  
+}
+  
 
