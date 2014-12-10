@@ -4,7 +4,10 @@
 #include "DHT.h"
 #include <RTCTimedEvent.h>
 #include <EEPROM.h>  // Contains EEPROM.read() and EEPROM.write()
+#include <SoftwareSerial.h>// import the serial library
 
+// Bluetooh 
+SoftwareSerial bt(8, 9); // RX, TX
 
 // Sound Sensor Pin
 #define SOUNDSENSORPIN 3
@@ -206,6 +209,76 @@ void setup(void)
                          TIMER_ANY, //day
                          TIMER_ANY, //month
                          readAndSave);
+                         
+   bt.begin(9600);
+   printBTHelp();
+}
+
+void loop(void)
+{
+  RTCTimedEvent.loop();
+  //Narcoleptic.delay(8000);
+  
+  // sound handling
+  handleSound();
+  
+  // handle bluetooth
+  handleBT():
+  
+  // delay
+  delay(1000);
+}
+
+void printBTHelp(void) {
+  bt.println("Willkommen beim Keller-Logger.");
+  bt.println("Benutzung:");
+  bt.println("   a : aktuelle Werte anzeigen");
+  bt.println("   l : Liste anzeigen / download");
+  bt.println("   r : Reset, löscht letzte Liste");
+  bt.println("   h : diese Hilfe");
+}
+
+void handleBT(void) {
+  String cmd = "";
+  char character;
+  while(bt.available()>0) {
+      character = bt.read();
+      bt.print(character);
+      if (character == 13) {
+        break; // leave while
+      }
+      cmd = cmd + character;
+  }
+  
+  if(cmd.length() > 0) {
+    // enter key was hit
+    if(cmd.equals("h")) {
+      printBTHelp();
+    } else if(cmd.equals("a")) {
+      // actual values
+      // Reading temperature or humidity takes about 250 milliseconds!
+      // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+      float rh = dht.readHumidity();
+      // Read temperature as Celsius
+      float t = dht.readTemperature();
+      bt.print("Temp: ");
+      bt.print(t);
+      bt.print("  RH: ");
+      bt.print(rh);
+      bt.println("%");
+    } else if(cmd.equals("l")) {
+      // download
+      File logfile = getDataLogfile(logfileNumber);
+      while(logfile.available()) {
+        bt.write(logfile.read());
+      }
+      logfile.close();
+    } else if(cmd.equals("r")) {
+      // reset
+      logfileNumber++;
+      saveConfig();
+    }
+  }
 }
 
 void echo(RTCTimerInformation* Sender) {
@@ -242,21 +315,7 @@ File getDataLogfile(int logfileNumber) {
 #endif //ECHO_TO_SERIAL
   }
   
-  // TODO: not the best place here
-  saveConfig();
-
   return logfile;
-}
-
-void loop(void)
-{
-  RTCTimedEvent.loop();
-  //Narcoleptic.delay(8000);
-  
-  // sound handling
-  handleSound();
-  
-  delay(8000);
 }
 
 void handleSound(void) {
