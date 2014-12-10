@@ -252,6 +252,11 @@ void handleBT(void) {
   
   if(cmd.length() > 0) {
     // enter key was hit
+#if ECHO_TO_SERIAL
+    Serial.print("Bluetooh received: ");
+    Serial.println(cmd);
+#endif //ECHO_TO_SERIAL
+    
     if(cmd.equals("h")) {
       printBTHelp();
     } else if(cmd.equals("a")) {
@@ -277,6 +282,9 @@ void handleBT(void) {
       // reset
       logfileNumber++;
       saveConfig();
+    } else {
+      // command not supported
+      bt.println("unbekannter Befehl");
     }
   }
 }
