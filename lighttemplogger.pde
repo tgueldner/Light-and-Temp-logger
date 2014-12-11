@@ -7,7 +7,7 @@
 #include <SoftwareSerial.h>// import the serial library
 
 // Bluetooh 
-SoftwareSerial bt(8, 9); // RX, TX
+SoftwareSerial bt(6, 7); // RX, TX
 
 // Sound Sensor Pin
 #define SOUNDSENSORPIN 3
@@ -54,7 +54,7 @@ DHT dht(DHTPIN, DHTTYPE);
 // #define SYNC_INTERVAL 60000 // mills between calls to flush() - to write data to the card
 // uint32_t syncTime = 0; // time of last sync()
 
-#define ECHO_TO_SERIAL   1 // echo data to serial port
+#define ECHO_TO_SERIAL   0 // echo data to serial port
 #define WAIT_TO_START    0 // Wait for serial input in setup()
 
 // the digital pins that connect to the LEDs
@@ -81,7 +81,7 @@ int logfileNumber = 0;
 #define CONFIG_VERSION "TL1"
 
 // Tell it where to store your config data in EEPROM
-#define CONFIG_START 32
+#define CONFIG_START 1
 
 
 //  settings structure
@@ -125,9 +125,10 @@ void error(char *str)
 void setup(void)
 {
   Serial.begin(9600);
-  Serial.println();
+  //Serial.println("Temp/RH logger V0.1 started.");
   
-  Serial.println("Temp/RH logger V0.1 started.");
+  bt.begin(9600);
+  //Serial.println("Bluetooth initialized");
   
   // sound
   pinMode(SOUNDSENSORPIN, INPUT);
@@ -146,22 +147,9 @@ void setup(void)
   if (!RTC.begin()) {
     error("RTC failed");
   }
-  DateTime now = RTC.now();
-  Serial.print("Start up on ");
-  Serial.print(now.day(), DEC);
-  Serial.print(".");
-  Serial.print(now.month(), DEC);
-  Serial.print(".");
-  Serial.print(now.year(), DEC);
-  Serial.print(" ");
-  Serial.print(now.hour(), DEC);
-  Serial.print(":");
-  Serial.print(now.minute(), DEC);
-  Serial.print(":");
-  Serial.println(now.second(), DEC);
-
+  
   // initialize the SD card
-  Serial.print("Initializing SD card...");
+  //Serial.print("Initializing SD card...");
   // make sure that the default chip select pin is set to
   // output, even if you don't use it:
   pinMode(10, OUTPUT);
@@ -169,15 +157,20 @@ void setup(void)
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
     error("Card failed, or not present");
-  }
-  Serial.println("card initialized.");
-    
-  dht.begin();
+  }  
+  //Serial.println("done");
   
+  //Serial.print("Initializing DHT ...");  
+  dht.begin();
+  //Serial.println("done");
+  
+  //Serial.print("Loading config ...");  
   loadConfig();
+  //Serial.println("done");
+  
+  delay(1000);
   
   logfileNumber = storage.logfileNumber;
-  File logfile = getDataLogfile(logfileNumber);
  
   // If you want to set the aref to something other than 5v
   analogReference(EXTERNAL);
@@ -210,7 +203,6 @@ void setup(void)
                          TIMER_ANY, //month
                          readAndSave);
                          
-   bt.begin(9600);
    printBTHelp();
 }
 
@@ -223,32 +215,30 @@ void loop(void)
   handleSound();
   
   // handle bluetooth
-  handleBT():
+  handleBT();
   
   // delay
   delay(1000);
 }
 
 void printBTHelp(void) {
-  bt.println("Willkommen beim Keller-Logger.");
-  bt.println("Benutzung:");
+  bt.println("Willkommen beim Keller-Logger:");
   bt.println("   a : aktuelle Werte anzeigen");
   bt.println("   l : Liste anzeigen / download");
-  bt.println("   r : Reset, löscht letzte Liste");
+  bt.println("   r : Reset, lÃ¶scht letzte Liste");
   bt.println("   h : diese Hilfe");
 }
 
 void handleBT(void) {
   String cmd = "";
   char character;
-  while(bt.available()>0) {
+  while(bt.available() > 0) {
       character = bt.read();
-      bt.print(character);
-      if (character == 13) {
-        break; // leave while
-      }
+      //if (character == 13) {
+      //  break; // leave while
+      //}
       cmd = cmd + character;
-  }
+  }  
   
   if(cmd.length() > 0) {
     // enter key was hit
@@ -273,11 +263,17 @@ void handleBT(void) {
       bt.println("%");
     } else if(cmd.equals("l")) {
       // download
-      File logfile = getDataLogfile(logfileNumber);
-      while(logfile.available()) {
+      File logfile = getDataLogfile(logfileNumber, FILE_READ);
+      bt.print("Logfile opened for reading: ");
+      bt.print(logfile.name());
+      bt.print(" ");
+      bt.print(logfile.size());
+      bt.println("bytes");
+      while(logfile.available() > 0) {
         bt.write(logfile.read());
       }
       logfile.close();
+      bt.println("Download done!");
     } else if(cmd.equals("r")) {
       // reset
       logfileNumber++;
@@ -289,30 +285,20 @@ void handleBT(void) {
   }
 }
 
-void echo(RTCTimerInformation* Sender) {
-//  Serial.println("echo called");
-  digitalWrite(redLEDpin, HIGH);
-  delay(1000);
-  digitalWrite(redLEDpin, LOW);
-}
-
-File getDataLogfile(int logfileNumber) {
+File getDataLogfile(int logfileNumber, byte mode) {
   // create a new file
   char filename[] = "LOGGER00.CSV";
   filename[6] = logfileNumber/10 + '0';
   filename[7] = logfileNumber%10 + '0';
-  
+    
   boolean newFile = !SD.exists(filename);
-  File logfile = SD.open(filename, FILE_WRITE); 
+  //Serial.print("Try to open logfile: ");
+  //Serial.println(filename);
+  File logfile = SD.open(filename, mode); 
   
   if (! logfile) {
     error("couldnt create file");
   }
-  
-#if ECHO_TO_SERIAL
-  Serial.print("Logging to file ");
-  Serial.println(logfile.name());
-#endif
   
   if(newFile) {
     // create heading for new log file 
@@ -359,7 +345,7 @@ void readAndSave(RTCTimerInformation* Sender) {
   // fetch the time
   DateTime now = RTC.now();
   
-  File logfile = getDataLogfile(logfileNumber);
+  File logfile = getDataLogfile(logfileNumber, FILE_WRITE);
   
   // log milliseconds since starting
   uint32_t m = millis();
@@ -458,9 +444,3 @@ void readAndSave(RTCTimerInformation* Sender) {
   digitalWrite(redLEDpin, LOW);
   
 }
-
-void initEEPROM(void) {
-  
-}
-  
-
