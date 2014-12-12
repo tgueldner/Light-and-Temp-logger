@@ -4,10 +4,6 @@
 #include "DHT.h"
 #include <RTCTimedEvent.h>
 #include <EEPROM.h>  // Contains EEPROM.read() and EEPROM.write()
-#include <SoftwareSerial.h>// import the serial library
-
-// Bluetooh 
-SoftwareSerial bt(6, 7); // RX, TX
 
 // Sound Sensor Pin
 #define SOUNDSENSORPIN 3
@@ -125,10 +121,7 @@ void error(char *str)
 void setup(void)
 {
   Serial.begin(9600);
-  //Serial.println("Temp/RH logger V0.1 started.");
-  
-  bt.begin(9600);
-  //Serial.println("Bluetooth initialized");
+  Serial.println("Temp/RH logger V0.1 started.");
   
   // sound
   pinMode(SOUNDSENSORPIN, INPUT);
@@ -149,7 +142,7 @@ void setup(void)
   }
   
   // initialize the SD card
-  //Serial.print("Initializing SD card...");
+  Serial.print("Initializing SD card...");
   // make sure that the default chip select pin is set to
   // output, even if you don't use it:
   pinMode(10, OUTPUT);
@@ -158,15 +151,15 @@ void setup(void)
   if (!SD.begin(chipSelect)) {
     error("Card failed, or not present");
   }  
-  //Serial.println("done");
+  Serial.println("done");
   
-  //Serial.print("Initializing DHT ...");  
+  Serial.print("Initializing DHT ...");  
   dht.begin();
-  //Serial.println("done");
+  Serial.println("done");
   
-  //Serial.print("Loading config ...");  
+  Serial.print("Loading config ...");  
   loadConfig();
-  //Serial.println("done");
+  Serial.println("done");
   
   delay(1000);
   
@@ -222,18 +215,18 @@ void loop(void)
 }
 
 void printBTHelp(void) {
-  bt.println("Willkommen beim Keller-Logger:");
-  bt.println("   a : aktuelle Werte anzeigen");
-  bt.println("   l : Liste anzeigen / download");
-  bt.println("   r : Reset, löscht letzte Liste");
-  bt.println("   h : diese Hilfe");
+  Serial.println("Willkommen beim Keller-Logger:");
+  Serial.println("   a : aktuelle Werte anzeigen");
+  Serial.println("   l : Liste anzeigen / download");
+  Serial.println("   r : Reset, loescht letzte Liste");
+  Serial.println("   h : diese Hilfe");
 }
 
 void handleBT(void) {
   String cmd = "";
   char character;
-  while(bt.available() > 0) {
-      character = bt.read();
+  while(Serial.available() > 0) {
+      character = Serial.read();
       //if (character == 13) {
       //  break; // leave while
       //}
@@ -256,31 +249,32 @@ void handleBT(void) {
       float rh = dht.readHumidity();
       // Read temperature as Celsius
       float t = dht.readTemperature();
-      bt.print("Temp: ");
-      bt.print(t);
-      bt.print("  RH: ");
-      bt.print(rh);
-      bt.println("%");
+      Serial.print("Temp: ");
+      Serial.print(t);
+      Serial.print("  RH: ");
+      Serial.print(rh);
+      Serial.println("%");
     } else if(cmd.equals("l")) {
       // download
       File logfile = getDataLogfile(logfileNumber, FILE_READ);
-      bt.print("Logfile opened for reading: ");
-      bt.print(logfile.name());
-      bt.print(" ");
-      bt.print(logfile.size());
-      bt.println("bytes");
+      Serial.print("Logfile opened for reading: ");
+      Serial.print(logfile.name());
+      Serial.print(" ");
+      Serial.print(logfile.size());
+      Serial.println("bytes");
       while(logfile.available() > 0) {
-        bt.write(logfile.read());
+        Serial.write(logfile.read());
       }
       logfile.close();
-      bt.println("Download done!");
+      Serial.println("Download done!");
     } else if(cmd.equals("r")) {
       // reset
       logfileNumber++;
       saveConfig();
+      Serial.println("Schreibe in neue Datei.");
     } else {
       // command not supported
-      bt.println("unbekannter Befehl");
+      Serial.println("unbekannter Befehl");
     }
   }
 }
@@ -292,8 +286,10 @@ File getDataLogfile(int logfileNumber, byte mode) {
   filename[7] = logfileNumber%10 + '0';
     
   boolean newFile = !SD.exists(filename);
-  //Serial.print("Try to open logfile: ");
-  //Serial.println(filename);
+#if ECHO_TO_SERIAL
+  Serial.print("Try to open logfile: ");
+  Serial.println(filename);
+#endif
   File logfile = SD.open(filename, mode); 
   
   if (! logfile) {
