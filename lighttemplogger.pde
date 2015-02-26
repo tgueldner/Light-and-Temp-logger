@@ -6,12 +6,12 @@
 #include <EEPROM.h>  // Contains EEPROM.read() and EEPROM.write()
 
 // Sound Sensor Pin
-#define SOUNDSENSORPIN 3
+#define SOUNDSENSORPIN 7
 #define SOUNDLIMIT 10
 
 // START DHT
 // URL: 
-#define DHTPIN 2     // what pin we're connected to
+#define DHTPIN 6     // what pin we're connected to
 
 // Uncomment whatever type you're using!
 //#define DHTTYPE DHT11   // DHT 11 
@@ -52,10 +52,11 @@ DHT dht(DHTPIN, DHTTYPE);
 
 #define ECHO_TO_SERIAL   0 // echo data to serial port
 #define WAIT_TO_START    0 // Wait for serial input in setup()
+#define BT 0 // handle bluetooth
 
 // the digital pins that connect to the LEDs
-#define redLEDpin 13 // 2
-#define greenLEDpin 13 // 3
+#define redLEDpin 2
+#define greenLEDpin 3
 
 #define BANDGAPREF 14            // special indicator that we want to measure the bandgap
 
@@ -115,7 +116,7 @@ void error(char *str)
   // red LED indicates error
   digitalWrite(redLEDpin, HIGH);
 
-  while(1);
+  //while(1);
 }
 
 void setup(void)
@@ -136,10 +137,24 @@ void setup(void)
 #endif //WAIT_TO_START
 
   // connect to RTC
+  Serial.print("Start RTC...");
   Wire.begin();  
   if (!RTC.begin()) {
     error("RTC failed");
   }
+//  RTC.adjust(DateTime(__DATE__, __TIME__));
+  DateTime now = RTC.now();
+  Serial.print(now.day(), DEC);
+  Serial.print(".");
+  Serial.print(now.month(), DEC);
+  Serial.print(".");
+  Serial.print(now.year(), DEC);
+  Serial.print(" ");
+  Serial.print(now.hour(), DEC);
+  Serial.print(":");
+  Serial.print(now.minute(), DEC);
+  Serial.print(":");
+  Serial.println(now.second(), DEC);
   
   // initialize the SD card
   Serial.print("Initializing SD card...");
@@ -195,8 +210,10 @@ void setup(void)
                          TIMER_ANY, //day
                          TIMER_ANY, //month
                          readAndSave);
-                         
+   
+#if BT                      
    printBTHelp();
+#endif // BT
 }
 
 void loop(void)
@@ -206,14 +223,16 @@ void loop(void)
   
   // sound handling
   handleSound();
-  
+#if BT
   // handle bluetooth
   handleBT();
+#endif // BT  
   
   // delay
   delay(1000);
 }
 
+#if BT
 void printBTHelp(void) {
   Serial.println("Willkommen beim Keller-Logger:");
   Serial.println("   a : aktuelle Werte anzeigen");
@@ -232,12 +251,17 @@ void handleBT(void) {
       //}
       cmd = cmd + character;
   }  
+  if(cmd.length() > 1) {
+    cmd = cmd.substring(0,1);
+  }
   
   if(cmd.length() > 0) {
     // enter key was hit
 #if ECHO_TO_SERIAL
     Serial.print("Bluetooh received: ");
-    Serial.println(cmd);
+    Serial.print(cmd);
+    Serial.print("size:");
+    Serial.println(cmd.length());
 #endif //ECHO_TO_SERIAL
     
     if(cmd.equals("h")) {
@@ -278,6 +302,7 @@ void handleBT(void) {
     }
   }
 }
+#endif //BT
 
 File getDataLogfile(int logfileNumber, byte mode) {
   // create a new file
@@ -299,7 +324,6 @@ File getDataLogfile(int logfileNumber, byte mode) {
   if(newFile) {
     // create heading for new log file 
     logfile.println("millis,stamp,datetime,temp,rh,sound,vcc");    
-    logfile.close();
 #if ECHO_TO_SERIAL
     Serial.println("log file heading: millis,stamp,datetime,temp,rh,sound,vcc");
 #endif //ECHO_TO_SERIAL
@@ -356,11 +380,11 @@ void readAndSave(RTCTimerInformation* Sender) {
   logfile.print(now.unixtime()); // seconds since 1/1/1970
   logfile.print(", ");
   logfile.print('"');
-  logfile.print(now.year(), DEC);
-  logfile.print("/");
-  logfile.print(now.month(), DEC);
-  logfile.print("/");
   logfile.print(now.day(), DEC);
+  logfile.print(".");
+  logfile.print(now.month(), DEC);
+  logfile.print(".");
+  logfile.print(now.year(), DEC);
   logfile.print(" ");
   logfile.print(now.hour(), DEC);
   logfile.print(":");
@@ -372,11 +396,11 @@ void readAndSave(RTCTimerInformation* Sender) {
   Serial.print(now.unixtime()); // seconds since 1/1/1970
   Serial.print(", ");
   Serial.print('"');
-  Serial.print(now.year(), DEC);
-  Serial.print("/");
-  Serial.print(now.month(), DEC);
-  Serial.print("/");
   Serial.print(now.day(), DEC);
+  Serial.print(".");
+  Serial.print(now.month(), DEC);
+  Serial.print(".");
+  Serial.print(now.year(), DEC);
   Serial.print(" ");
   Serial.print(now.hour(), DEC);
   Serial.print(":");
